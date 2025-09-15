@@ -27,7 +27,7 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 你可以运行scripts\train_tokenizer.py来得到model\tokenizer_config.json和model\tokenizer.json，这将作为tokenizer来为后面的分词起作用。不过直接用我训练的tokenizer就可以省去这一步hh。
 
 ## 3、训练pretrain模型
-利用trainer\train_pretrain.py文件便可以开始训练pretrain模型了
+利用trainer\train_pretrain.py文件便可以开始训练pretrain模型了，我的预训练数据集为dataset\pretrain_hq.jsonl，这个是已经经过我清洗过的比较高质量的数据集。
 下面是我训练的loss曲线，我训练了大概三个epoch，模型参数存放在out文件夹下  
 
 <div align="center">
@@ -41,7 +41,7 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 <div align="center">
   
-https://github.com/user-attachments/assets/c8a74c1e-38a2-4a6d-bca1-68da7dee005d
+<img width="1489" height="707" alt="image" src="https://github.com/user-attachments/assets/bd7dae9a-0eff-4247-8029-b3155e123049" />
 
 </div>  
-其实在这里可以看得到模型性能并不是很好，在回答问题时会有很多错误信息并且出现语无伦次的情况。可能的原因时其中华南理工大学的信息其实可能在训练语料中并未出现，如果想要回答的比较准确的话可以做进一步微调或者RAG检索。
+其实在这里可以看得到模型性能并不是很好，在回答问题时会有很多错误信息并且出现语无伦次的情况。可能的原因是训练的轮数不够或者训练语料中相关的信息比较少，如果想要回答的比较准确的话可以做进一步训练或者RAG检索。
