@@ -55,3 +55,11 @@ python train_full_sft.py --use_tb
 </div>
 
 
+     
+接下来继续用eval_model.py来评估模型
+<div align="center">
+  <img src="https://github.com/wzq20050122/Create-a-SmallAI/blob/master/pictures/eval_sft.png" alt="SFT模型评估结果" width="90%">
+</div>
+
+
+
