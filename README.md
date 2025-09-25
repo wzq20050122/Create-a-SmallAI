@@ -46,8 +46,12 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 其实在这里可以看得到模型性能并不是很好，在回答问题时会有很多错误信息并且出现语无伦次的情况。可能的原因是训练的轮数不够或者训练语料中相关的信息比较少，如果想要回答的比较准确的话可以做进一步训练或者RAG检索。
 
 ## 4、进行SFT微调
-此时大模型还不会说话，所以我们现在要用SFT来让大模型学会说话，如模型遇到这样的模板【问题->回答，问题->回答】后不再无脑接龙，而是意识到这是一段完整的对话结束。这里用的数据集dataset\sft_mini_512.jsonl为我利用匠数大模型SFT数据集进行数据清洗后得到的。
+此时大模型还不会说话，所以我们现在要用SFT来让大模型学会说话，如模型遇到这样的模板【问题->回答，问题->回答】后不再无脑接龙，而是意识到这是一段完整的对话结束。这里用的数据集dataset\sft_mini_512.jsonl为我利用匠数大模型SFT数据集进行数据清洗后得到的。这次SFT我训练了2个epoch下图为我的训练损失曲线。
 ```bash
 python train_full_sft.py --use_tb
 ```
+<div align="center">
+  <img src="https://github.com/wzq20050122/Create-a-SmallAI/blob/master/pictures/sft_loss.svg" alt="train_loss" width="70%">
+</div>
+
 
