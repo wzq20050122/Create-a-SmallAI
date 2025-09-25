@@ -32,10 +32,8 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 下面是我训练的loss曲线，我训练了大概三个epoch，模型参数存放在out文件夹下  
 
 <div align="center">
-  
-![train_loss](https://github.com/user-attachments/assets/d8bd076c-3978-4cf2-bffa-a449552a344c)
-
-</div>  
+  <img src="https://github.com/user-attachments/assets/d8bd076c-3978-4cf2-bffa-a449552a344c" alt="train_loss" width="70%">
+</div>
 
 然后，我们测试一下这个模型的性能，这里我用到了eval_model.py  
 
@@ -52,3 +50,4 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```bash
 python train_full_sft.py --use_tb
 ```
+
