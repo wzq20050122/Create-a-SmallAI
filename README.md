@@ -9,7 +9,7 @@ git clone https://github.com/wzq20050122/SmallAI.git
 
 ## 1、环境配置
 <details>
-<summary>环境配置 cuda</summary>
+<summary>环境配置 </summary>
 
 * 我是在 autodl 上租用一个 RTX 4090D 单卡跑的
 * PyTorch 2.3.0
@@ -61,5 +61,5 @@ python train_full_sft.py --use_tb
   <img src="https://github.com/wzq20050122/Create-a-SmallAI/blob/master/pictures/eval_sft.png" alt="SFT模型评估结果" width="90%">
 </div>
 
-
+可以看得到上面的对话已经从无脑接龙转变为可以简单对话了，不过因为我SFT使用的数据集把长对话过滤掉了，只保留了短对话，所以上述对话长度都比较短。
 
