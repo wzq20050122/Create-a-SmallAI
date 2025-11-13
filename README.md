@@ -57,7 +57,7 @@ python train_full_sft.py --use_tb
 
 ## 5、进行RLHF
 我本意是想遵循SFT+RLHF的这个流程的，但是目前看来效果并不佳。回答有可能是因为我前面训练的语料太短了，所以模型一直在倾向于朝更短的回答训练。
-![RLHF](pictures\image.png)  
+![RLHF](pictures/image.png)  
 
 ## 6、重新进行SFT，选取长语料的训练集再次进行SFT
 我在选用了新的sft_512.jsonl和sft_2048.jsonl分别进行了2个epoch和3个epoch的微调后，模型的对话能力有了明显的提升  
