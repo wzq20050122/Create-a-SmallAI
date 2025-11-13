@@ -29,11 +29,6 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ## 3、训练pretrain模型
 预训练只是让大模型学会文本之间的联系，此时大模型还不会说话，只是知道词语接龙一样的，此时只需要让大模型无监督地埋头苦读学习大量知识就行。
 利用trainer\train_pretrain.py文件便可以开始训练pretrain模型了，我的预训练数据集为dataset\pretrain_hq.jsonl，这个是已经经过我利用匠数大模型数据集清洗过的比较高质量的数据集。
-下面是我训练的loss曲线，我训练了大概三个epoch，模型参数存放在out文件夹下  
-
-<div align="center">
-  <img src="https://github.com/user-attachments/assets/d8bd076c-3978-4cf2-bffa-a449552a344c" alt="train_loss" width="70%">
-</div>
 
 然后，我们测试一下这个模型的性能，这里我用到了eval_model.py  
 
@@ -50,9 +45,6 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```bash
 python train_full_sft.py --use_tb
 ```
-<div align="center">
-  <img src="https://github.com/wzq20050122/Create-a-SmallAI/blob/master/pictures/sft_loss.svg" alt="train_loss" width="70%">
-</div>
 
 
 ## 5、进行RLHF
