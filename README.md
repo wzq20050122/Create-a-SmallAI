@@ -9,7 +9,7 @@ git clone https://github.com/wzq20050122/SmallAI.git
 
 ## 1、环境配置
 <details>
-<summary>环境配置 cuda</summary>
+<summary>环境配置 </summary>
 
 * 我是在 autodl 上租用一个 RTX 4090D 单卡跑的
 * PyTorch 2.3.0
@@ -21,7 +21,9 @@ git clone https://github.com/wzq20050122/SmallAI.git
 然后下载requirement.txt
 ```bash
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-```
+```   
+
+数据集我放在https://www.modelscope.cn/datasets/wzq2005/SmallAI/files上面了
 
 ## 2、训练tokenizer
 你可以运行scripts\train_tokenizer.py来得到model\tokenizer_config.json和model\tokenizer.json，这将作为tokenizer来为后面的分词起作用。不过直接用我训练的tokenizer就可以省去这一步hh。
@@ -41,10 +43,16 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 其实在这里可以看得到模型性能并不是很好，在回答问题时会有很多错误信息并且出现语无伦次的情况。可能的原因是训练的轮数不够或者训练语料中相关的信息比较少，如果想要回答的比较准确的话可以做进一步训练或者RAG检索。
 
 ## 4、进行SFT微调
-此时大模型还不会说话，所以我们现在要用SFT来让大模型学会说话，如模型遇到这样的模板【问题->回答，问题->回答】后不再无脑接龙，而是意识到这是一段完整的对话结束。这里用的数据集dataset\sft_mini_512.jsonl为我利用匠数大模型SFT数据集进行数据清洗后得到的。这次SFT我训练了2个epoch下图为我的训练损失曲线。
+此时大模型还不会说话，所以我们现在要用SFT来让大模型学会说话，如模型遇到这样的模板【问题->回答，问题->回答】后不再无脑接龙，而是意识到这是一段完整的对话结束。这里用的数据集dataset\sft_mini_512.jsonl为我利用匠数大模型SFT数据集进行数据清洗后得到的。
 ```bash
 python train_full_sft.py --use_tb
 ```
+接下来继续用eval_model.py来评估模型
+<div align="center">
+  <img src="https://github.com/wzq20050122/Create-a-SmallAI/blob/master/pictures/eval_sft.png" alt="SFT模型评估结果" width="90%">
+</div>
+
+可以看得到上面的对话已经从无脑接龙转变为可以简单对话了，不过因为我SFT使用的数据集把长对话过滤掉了，只保留了短对话，所以上述对话长度都比较短。
 
 
 ## 5、进行RLHF
@@ -56,3 +64,5 @@ python train_full_sft.py --use_tb
 
 ![sft_v2版本截图](pictures/sft_v2.png)
 ![sft_v3版本截图](pictures/sft_v3.png)
+     
+
