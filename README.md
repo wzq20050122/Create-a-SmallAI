@@ -23,7 +23,7 @@ git clone https://github.com/wzq20050122/SmallAI.git
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```   
 
-数据集我放在https://www.modelscope.cn/datasets/wzq2005/SmallAI/files上面了
+数据集我放在modelscope上面了：https://www.modelscope.cn/datasets/wzq2005/SmallAI/files 
 
 ## 2、训练tokenizer
 你可以运行scripts\train_tokenizer.py来得到model\tokenizer_config.json和model\tokenizer.json，这将作为tokenizer来为后面的分词起作用。不过直接用我训练的tokenizer就可以省去这一步hh。
