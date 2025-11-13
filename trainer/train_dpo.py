@@ -1,6 +1,5 @@
 import os
 import sys
-
 __package__ = "trainer"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -9,15 +8,16 @@ import time
 import math
 import warnings
 import torch
+import torch.nn.functional as F
 import torch.distributed as dist
 from contextlib import nullcontext
-from torch import optim, nn
+from torch import optim
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from model.model_SmallAI import SmallAIConfig, SmallAIForCausalLM
-from dataset.lm_dataset import SFTDataset
+from dataset.lm_dataset import DPODataset
 
 warnings.filterwarnings('ignore')
 
@@ -31,26 +31,63 @@ def get_lr(current_step, total_steps, lr):
     return lr / 10 + 0.5 * lr * (1 + math.cos(math.pi * current_step / total_steps))
 
 
+def logits_to_probs(logits, labels):
+    # logits shape: (batch_size, seq_len, vocab_size)
+    # labels shape: (batch_size, seq_len)
+    # probs shape: (batch_size, seq_len)
+    log_probs = F.log_softmax(logits, dim=2)
+    probs = torch.gather(log_probs, dim=2, index=labels.unsqueeze(2)).squeeze(-1)
+    return probs
+
+
+def dpo_loss(ref_probs, probs, mask, beta):
+    # ref_probs 和 probs 都是 shape: (batch_size, seq_len)
+    seq_lengths = mask.sum(dim=1, keepdim=True)  # (batch_size, 1)
+    ref_probs = (ref_probs * mask).sum(dim=1) / seq_lengths.squeeze()
+    probs = (probs * mask).sum(dim=1) / seq_lengths.squeeze()
+
+    # 将 chosen 和 rejected 数据分开
+    batch_size = ref_probs.shape[0]
+    chosen_ref_probs = ref_probs[:batch_size // 2]
+    reject_ref_probs = ref_probs[batch_size // 2:]
+    chosen_probs = probs[:batch_size // 2]
+    reject_probs = probs[batch_size // 2:]
+
+    pi_logratios = chosen_probs - reject_probs
+    ref_logratios = chosen_ref_probs - reject_ref_probs
+    logits = pi_logratios - ref_logratios
+    loss = -F.logsigmoid(beta * logits)
+    return loss.mean()
+
+
 def train_epoch(epoch, wandb, tb_writer):
-    loss_fct = nn.CrossEntropyLoss(reduction='none')
     start_time = time.time()
-    for step, (X, Y, loss_mask) in enumerate(train_loader):
-        X = X.to(args.device)
-        Y = Y.to(args.device)
-        loss_mask = loss_mask.to(args.device)
+    for step, batch in enumerate(train_loader):
+        x_chosen = batch['x_chosen'].to(args.device)
+        x_rejected = batch['x_rejected'].to(args.device)
+        y_chosen = batch['y_chosen'].to(args.device)
+        y_rejected = batch['y_rejected'].to(args.device)
+        mask_chosen = batch['mask_chosen'].to(args.device)
+        mask_rejected = batch['mask_rejected'].to(args.device)
+        x = torch.cat([x_chosen, x_rejected], dim=0)
+        y = torch.cat([y_chosen, y_rejected], dim=0)
+        mask = torch.cat([mask_chosen, mask_rejected], dim=0)
+
         lr = get_lr(epoch * iter_per_epoch + step, args.epochs * iter_per_epoch, args.learning_rate)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
 
         with ctx:
-            res = model(X)
-            loss = loss_fct(
-                res.logits.view(-1, res.logits.size(-1)),
-                Y.view(-1)
-            ).view(Y.size())
-
-            loss = (loss * loss_mask).sum() / loss_mask.sum()
-            loss += res.aux_loss
+            with torch.no_grad():
+                ref_outputs = ref_model(x)
+                ref_logits = ref_outputs.logits
+            ref_probs = logits_to_probs(ref_logits, y)
+            ref_probs = ref_probs * mask
+            outputs = model(x)
+            logits = outputs.logits
+            probs = logits_to_probs(logits, y)
+            probs = probs * mask
+            loss = dpo_loss(ref_probs, probs, mask, beta=0.1)
             loss = loss / args.accumulation_steps
 
         scaler.scale(loss).backward()
@@ -58,10 +95,8 @@ def train_epoch(epoch, wandb, tb_writer):
         if (step + 1) % args.accumulation_steps == 0:
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-
             scaler.step(optimizer)
             scaler.update()
-
             optimizer.zero_grad(set_to_none=True)
 
         if step % args.log_interval == 0:
@@ -84,7 +119,7 @@ def train_epoch(epoch, wandb, tb_writer):
             # TensorBoard记录
             if tb_writer is not None and (not ddp or dist.get_rank() == 0):
                 global_step = epoch * iter_per_epoch + step + 1
-                tb_writer.add_scalar("train/loss", loss.item() * args.accumulation_steps, global_step)
+                tb_writer.add_scalar("train/dpo_loss", loss.item() * args.accumulation_steps, global_step)
                 tb_writer.add_scalar("train/lr", optimizer.param_groups[-1]['lr'], global_step)
                 tb_writer.add_scalar("train/epoch", epoch + 1, global_step)
 
@@ -105,9 +140,9 @@ def save_checkpoint(epoch_num, checkpoint_type):
     moe_path = '_moe' if lm_config.use_moe else ''
     
     if checkpoint_type == "half":
-        filename = f'full_sft_{lm_config.hidden_size}{moe_path}_epoch{epoch_num:.1f}.pth'
+        filename = f'rlhf_{lm_config.hidden_size}{moe_path}_epoch{epoch_num:.1f}.pth'
     else:  # full
-        filename = f'full_sft_{lm_config.hidden_size}{moe_path}_epoch{int(epoch_num)}.pth'
+        filename = f'rlhf_{lm_config.hidden_size}{moe_path}_epoch{int(epoch_num)}.pth'
     
     ckp = f'{args.save_dir}/{filename}'
     
@@ -123,23 +158,30 @@ def save_checkpoint(epoch_num, checkpoint_type):
 
 
 def init_model(lm_config):
-    tokenizer = AutoTokenizer.from_pretrained('../model')
+    tokenizer = AutoTokenizer.from_pretrained('./model/')
     model = SmallAIForCausalLM(lm_config)
     
-    # 支持指定具体的预训练检查点路径
-    if args.pretrain_checkpoint:
-        ckp = args.pretrain_checkpoint
+    # 支持指定具体的SFT检查点路径
+    if args.sft_checkpoint:
+        ckp = args.sft_checkpoint
     else:
         moe_path = '_moe' if lm_config.use_moe else ''
-        ckp = f'{args.save_dir}/pretrain_{lm_config.hidden_size}{moe_path}.pth'
+        ckp = f'{args.save_dir}/full_sft_{lm_config.hidden_size}{moe_path}.pth'
     
-    Logger(f'加载预训练检查点: {ckp}')
+    Logger(f'加载SFT检查点: {ckp}')
     state_dict = torch.load(ckp, map_location=args.device)
     model.load_state_dict(state_dict, strict=False)
+    # 初始化参考模型
+    ref_model = SmallAIForCausalLM(lm_config)
+    ref_model.load_state_dict(state_dict, strict=False)
+    ref_model.eval()
+    ref_model.requires_grad_(False)
 
-    Logger(f'LLM可训练总参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} 百万')
+    Logger(f'LLM总参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} 百万')
     model = model.to(args.device)
-    return model, tokenizer
+    ref_model = ref_model.to(args.device)
+
+    return model, ref_model, tokenizer
 
 
 def init_distributed_mode():
@@ -155,42 +197,42 @@ def init_distributed_mode():
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="SmallAI Full SFT")
+    parser = argparse.ArgumentParser(description="SmallAI RLHF")
     parser.add_argument("--out_dir", type=str, default="../out")
     parser.add_argument("--epochs", type=int, default=2)
-    parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--learning_rate", type=float, default=5e-7)
+    parser.add_argument("--batch_size", type=int, default=32)
+    # sft阶段学习率为 「5e-6」->「5e-7」长度512，建议离线正负样本「概率」偏好对齐阶段lr <=「1e-8」长度3000，否则很容易遗忘训坏
+    parser.add_argument("--learning_rate", type=float, default=1e-8)
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--dtype", type=str, default="bfloat16")
     parser.add_argument("--use_wandb", action="store_true")
-    parser.add_argument("--wandb_project", type=str, default="SmallAI-Full-SFT")
+    parser.add_argument("--wandb_project", type=str, default="MiniMind-RLHF-SFT")
     parser.add_argument("--num_workers", type=int, default=1)
     parser.add_argument("--ddp", action="store_true")
     parser.add_argument("--accumulation_steps", type=int, default=1)
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--warmup_iters", type=int, default=0)
     parser.add_argument("--log_interval", type=int, default=100)
-    parser.add_argument("--save_interval", type=int, default=10000)
+    parser.add_argument("--save_interval", type=int, default=100)
     parser.add_argument('--local_rank', type=int, default=-1)
     parser.add_argument('--hidden_size', default=512, type=int)
     parser.add_argument('--num_hidden_layers', default=8, type=int)
-    parser.add_argument('--max_seq_len', default=512, type=int)
+    parser.add_argument('--max_seq_len', default=1024, type=int)
     parser.add_argument('--use_moe', default=False, type=bool)
-    parser.add_argument("--data_path", type=str, default="../dataset/sft_512.jsonl")
+    parser.add_argument("--data_path", type=str, default="../dataset/dpo.jsonl")
     parser.add_argument("--use_tb", action="store_true", help="使用TensorBoard记录训练过程")
-    parser.add_argument("--pretrain_checkpoint", type=str, default=None, help="指定预训练检查点路径")
+    parser.add_argument("--sft_checkpoint", type=str, default=None, help="指定SFT检查点文件路径")
 
     args = parser.parse_args()
 
-    lm_config = SmallAIConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers,
-                               use_moe=args.use_moe)
+    lm_config = SmallAIConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers, use_moe=args.use_moe)
     args.save_dir = os.path.join(args.out_dir)
     os.makedirs(args.save_dir, exist_ok=True)
     os.makedirs(args.out_dir, exist_ok=True)
     tokens_per_iter = args.batch_size * args.max_seq_len
     device_type = "cuda" if "cuda" in args.device else "cpu"
 
-    args.wandb_run_name = f"MiniMind-Full-SFT-Epoch-{args.epochs}-BatchSize-{args.batch_size}-LearningRate-{args.learning_rate}"
+    args.wandb_run_name = f"SmallAI-Full-DPO-Epoch-{args.epochs}-BatchSize-{args.batch_size}-LearningRate-{args.learning_rate}"
 
     ctx = nullcontext() if device_type == "cpu" else torch.cuda.amp.autocast()
     ddp = int(os.environ.get("RANK", -1)) != -1  # is this a ddp run?
@@ -216,14 +258,16 @@ if __name__ == "__main__":
     # 初始化TensorBoard
     tb_writer = None
     if args.use_tb and (not ddp or ddp_local_rank == 0):
-        log_dir = "./logs"
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_dir = f"./logs/dpo_training_{timestamp}"
         os.makedirs(log_dir, exist_ok=True)
         tb_writer = SummaryWriter(log_dir)
         Logger(f"TensorBoard日志将保存到: {log_dir}")
 
-    model, tokenizer = init_model(lm_config)
+    model, ref_model, tokenizer = init_model(lm_config)
 
-    train_ds = SFTDataset(args.data_path, tokenizer, max_length=args.max_seq_len)
+    train_ds = DPODataset(args.data_path, tokenizer, max_length=args.max_seq_len)
     train_sampler = DistributedSampler(train_ds) if ddp else None
     train_loader = DataLoader(
         train_ds,
